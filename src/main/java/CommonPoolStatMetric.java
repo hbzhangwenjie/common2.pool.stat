@@ -38,6 +38,7 @@ public class CommonPoolStatMetric {
                 Properties props = vm.getAgentProperties();
                 localConnectorAddress = props.getProperty("com.sun.management.jmxremote.localConnectorAddress");
             } catch (Exception e) {
+                e.printStackTrace();
             }
         }
     }
@@ -90,7 +91,7 @@ public class CommonPoolStatMetric {
             }
             return jsonObject;
         } catch (Exception e) {
-
+            e.printStackTrace();
         }
         return null;
     }
