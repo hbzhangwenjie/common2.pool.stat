@@ -1,67 +1,34 @@
 import com.google.gson.JsonObject;
-import com.sun.tools.attach.VirtualMachine;
-import com.sun.tools.attach.VirtualMachineDescriptor;
 import java.lang.management.ManagementFactory;
-import java.util.List;
-import java.util.Properties;
 import javax.management.MBeanAttributeInfo;
 import javax.management.MBeanInfo;
 import javax.management.MBeanServerConnection;
+import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
-import javax.management.remote.JMXConnector;
-import javax.management.remote.JMXConnectorFactory;
-import javax.management.remote.JMXServiceURL;
 
 /**
  * @Author: zwj
- * @Date: 2019-10-29 17:43
+ * @Date: 2019-11-12 11:20
+ * 使用ManagementFactory.getPlatformMBeanServer() 替换CommonPoolStatMetric 类中从虚拟机中找程序连接jmx的过程,这个过程需要依赖jdk的tools包而且需要自己管理连接不好
  */
-public class CommonPoolStatMetric {
+public class CommonPoolMetric {
 
     private String jmxName;
-    private static String pid = ManagementFactory.getRuntimeMXBean().getName().split("@")[0];
-    private static String localConnectorAddress = null;
-    private static JMXConnector connector = null;
+    private ObjectName objectName;
 
-    static {
-        List<VirtualMachineDescriptor> vms = VirtualMachine.list();
-        for (VirtualMachineDescriptor desc : vms) {
-            if (!desc.id().equals(pid)) {
-                continue;
-            }
-            VirtualMachine vm;
-            try {
-                vm = VirtualMachine.attach(desc);
-            } catch (Exception e) {
-                continue;
-            }
-            try {
-                Properties props = vm.getAgentProperties();
-                localConnectorAddress = props.getProperty("com.sun.management.jmxremote.localConnectorAddress");
-                connector = JMXConnectorFactory.connect(new JMXServiceURL(localConnectorAddress));
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    /*
-    jmxName 是org.apache.commons.pool2 里面注册jmx的jmxNamePrefix 配置，默认是pool
-    当一个项目中用了多个commons.pool 的时候更具这个来区分查找
-    比如用了redis 多数据源，jedis/lettcue
-     */
-    CommonPoolStatMetric(String jmxName) {
+    CommonPoolMetric(String jmxName) {
         this.jmxName = jmxName;
+        try {
+            this.objectName = new ObjectName("org.apache.commons.pool2:type=GenericObjectPool,name=" + jmxName);
+        } catch (MalformedObjectNameException e) {
+            //log.warn("CommonPoolMetric objectName init failed", e);
+        }
+
     }
 
     public JsonObject getMetric() {
-        if (localConnectorAddress == null) {
-            return null;
-        }
         try {
-
-            MBeanServerConnection mbeanConn = connector.getMBeanServerConnection();
-            ObjectName objectName = new ObjectName("org.apache.commons.pool2:type=GenericObjectPool,name=" + jmxName);
+            MBeanServerConnection mbeanConn = ManagementFactory.getPlatformMBeanServer();
             MBeanInfo mBeanInfo = mbeanConn.getMBeanInfo(objectName);
             MBeanAttributeInfo[] mBeanAttributeInfos = mBeanInfo.getAttributes();
             JsonObject jsonObject = new JsonObject();
@@ -90,10 +57,12 @@ public class CommonPoolStatMetric {
                     jsonObject.addProperty("CreatedCount", (Long) mbeanConn.getAttribute(objectName, attr.getName()));
                 }
             }
+
             return jsonObject;
         } catch (Exception e) {
-            e.printStackTrace();
+            // log.warn("获取redis连接池失败，jmxName:{},", jmxName, e);
         }
         return null;
     }
+
 }
